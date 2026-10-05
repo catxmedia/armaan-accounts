@@ -38,7 +38,11 @@ export const Header: React.FC<HeaderProps> = ({ title, showBack, onBack }) => {
             <span style={{ fontSize: 12, fontWeight: 700 }}>Back</span>
           </button>
         ) : (
-          <div className="header-logo-badge">AA</div>
+          <img
+            src="/Favicon.png"
+            alt="Armaan Accounts"
+            style={{ width: 32, height: 32, borderRadius: 8, objectFit: 'contain' }}
+          />
         )}
 
         <div className="header-title-wrap">
