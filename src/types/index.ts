@@ -2,6 +2,7 @@ export interface Person {
   id: string;
   name: string;
   mobileNumber: string;
+  isArchived?: boolean;
   createdAt: string; // ISO string
 }
 
@@ -12,6 +13,7 @@ export interface ReturnRecord {
   returnTime: string; // HH:mm
   remark?: string;
   createdAt: string; // ISO string
+  editHistory?: EditRecord[];
 }
 
 export interface EditRecord {
@@ -78,4 +80,12 @@ export interface ActivityItem {
   timestamp: string; // ISO string
   dateStr: string;
   timeStr: string;
+}
+
+export interface ToastNotification {
+  id: string;
+  message: string;
+  type?: 'success' | 'info' | 'warning' | 'error';
+  undoAction?: () => void;
+  undoLabel?: string;
 }

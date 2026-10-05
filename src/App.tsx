@@ -12,6 +12,10 @@ import { GiveMoneyModal } from './components/modals/GiveMoneyModal';
 import { RecordReturnModal } from './components/modals/RecordReturnModal';
 import { AddPersonModal } from './components/modals/AddPersonModal';
 import { TransactionDetailModal } from './components/modals/TransactionDetailModal';
+import { EditPersonModal } from './components/modals/EditPersonModal';
+import { EditReturnModal } from './components/modals/EditReturnModal';
+import { ConfirmModal } from './components/modals/ConfirmModal';
+import { Toast } from './components/Toast';
 
 const MainAppContent: React.FC = () => {
   const { activeTab, selectedPersonId } = useAccounts();
@@ -59,6 +63,10 @@ const MainAppContent: React.FC = () => {
       <RecordReturnModal />
       <AddPersonModal />
       <TransactionDetailModal />
+      <EditPersonModal />
+      <EditReturnModal />
+      <ConfirmModal />
+      <Toast />
     </div>
   );
 };

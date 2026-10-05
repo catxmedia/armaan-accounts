@@ -5,7 +5,11 @@ import {
   Phone,
   PlusCircle,
   ArrowDownLeft,
-  ChevronRight
+  ChevronRight,
+  Edit3,
+  Archive,
+  Trash2,
+  RotateCcw
 } from 'lucide-react';
 import { formatINR, formatCost, formatDate } from '../utils/formatters';
 import { calculateTransactionCost, getDaysOverdue } from '../utils/calculator';
@@ -20,7 +24,12 @@ export const PersonDetailView: React.FC = () => {
     now,
     openGiveMoney,
     openRecordReturn,
-    setSelectedTransactionId
+    setSelectedTransactionId,
+    setEditingPerson,
+    archivePerson,
+    restorePerson,
+    deletePerson,
+    setConfirmDialog
   } = useAccounts();
 
   const person = people.find((p) => p.id === selectedPersonId);
@@ -92,6 +101,38 @@ export const PersonDetailView: React.FC = () => {
         showBack
         onBack={() => setSelectedPersonId(null)}
       />
+
+      {/* Archived Status Notice */}
+      {person.isArchived && (
+        <div
+          style={{
+            background: '#fffbeb',
+            border: '1px solid #fde68a',
+            borderRadius: 12,
+            padding: '10px 14px',
+            marginBottom: 12,
+            color: '#92400e',
+            fontSize: 12,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8
+          }}
+        >
+          <span>
+            <b>Archived Person:</b> This person is hidden from the active list. Historical calculations remain active.
+          </span>
+          <button
+            type="button"
+            className="btn-sm btn-secondary"
+            onClick={() => restorePerson(person.id)}
+            style={{ padding: '5px 10px', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}
+          >
+            <RotateCcw size={12} />
+            <span>Restore</span>
+          </button>
+        </div>
+      )}
 
       {/* Top Person Account Summary Card */}
       <div
@@ -189,16 +230,16 @@ export const PersonDetailView: React.FC = () => {
         </div>
       </div>
 
-      {/* Quick Action Buttons for This Person */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+      {/* Prominent Quick Action Buttons for This Person */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 16 }}>
         <button
           type="button"
           className="btn btn-give"
           onClick={() => openGiveMoney(person.id)}
-          style={{ padding: '10px 12px', minHeight: 42, fontSize: 13 }}
+          style={{ padding: '10px 12px', minHeight: 44, fontSize: 13, justifyContent: 'center' }}
         >
           <PlusCircle size={16} />
-          <span>Give More Money</span>
+          <span>Give Money</span>
         </button>
 
         <button
@@ -206,11 +247,86 @@ export const PersonDetailView: React.FC = () => {
           className="btn btn-return"
           onClick={() => openRecordReturn(undefined, person.id)}
           disabled={stats.totalOutstanding <= 0}
-          style={{ padding: '10px 12px', minHeight: 42, fontSize: 13, opacity: stats.totalOutstanding <= 0 ? 0.5 : 1 }}
+          style={{
+            padding: '10px 12px',
+            minHeight: 44,
+            fontSize: 13,
+            justifyContent: 'center',
+            opacity: stats.totalOutstanding <= 0 ? 0.5 : 1
+          }}
         >
           <ArrowDownLeft size={16} />
           <span>Record Return</span>
         </button>
+
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={() => setEditingPerson(person)}
+          style={{ padding: '10px 12px', minHeight: 44, fontSize: 13, justifyContent: 'center' }}
+        >
+          <Edit3 size={15} />
+          <span>Edit Person</span>
+        </button>
+
+        {person.isArchived ? (
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => restorePerson(person.id)}
+            style={{ padding: '10px 12px', minHeight: 44, fontSize: 13, justifyContent: 'center', color: '#047857' }}
+          >
+            <RotateCcw size={15} />
+            <span>Restore Person</span>
+          </button>
+        ) : personTransactions.length === 0 ? (
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => {
+              setConfirmDialog({
+                isOpen: true,
+                title: 'Delete Person',
+                message: `Permanently delete ${person.name}?`,
+                warningNote: 'This person has no transaction history and will be removed permanently.',
+                confirmText: 'Delete Person',
+                danger: true,
+                onConfirm: () => {
+                  const res = deletePerson(person.id);
+                  if (res.success) {
+                    setSelectedPersonId(null);
+                  }
+                }
+              });
+            }}
+            style={{ padding: '10px 12px', minHeight: 44, fontSize: 13, justifyContent: 'center', color: '#dc2626' }}
+          >
+            <Trash2 size={15} />
+            <span>Delete Person</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => {
+              setConfirmDialog({
+                isOpen: true,
+                title: 'Archive Person',
+                message: `Archive ${person.name}'s account?`,
+                warningNote: 'Archived people are hidden from the active list. All transaction history, costs, and records will be safely preserved and can be restored at any time.',
+                confirmText: 'Archive Person',
+                danger: false,
+                onConfirm: () => {
+                  archivePerson(person.id);
+                }
+              });
+            }}
+            style={{ padding: '10px 12px', minHeight: 44, fontSize: 13, justifyContent: 'center' }}
+          >
+            <Archive size={15} />
+            <span>Archive Person</span>
+          </button>
+        )}
       </div>
 
       {/* Transactions Section */}

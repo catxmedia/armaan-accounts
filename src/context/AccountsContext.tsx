@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import type { Person, Transaction, AppSettings, ReturnRecord, EditRecord, ActivityItem } from '../types';
+import type { Person, Transaction, AppSettings, ReturnRecord, EditRecord, ActivityItem, ToastNotification } from '../types';
 import { INITIAL_PEOPLE, INITIAL_TRANSACTIONS, INITIAL_SETTINGS } from '../sampleData';
 import { calculateTransactionCost, parseDateTime } from '../utils/calculator';
 
@@ -14,6 +14,8 @@ interface AccountsContextType {
   setSelectedPersonId: (id: string | null) => void;
   selectedTransactionId: string | null;
   setSelectedTransactionId: (id: string | null) => void;
+
+  // Modals state
   giveMoneyModalOpen: boolean;
   setGiveMoneyModalOpen: (open: boolean) => void;
   recordReturnModalOpen: boolean;
@@ -23,11 +25,42 @@ interface AccountsContextType {
   modalPreselectedPersonId?: string;
   modalPreselectedTransactionId?: string;
 
+  // Person edit modal state
+  editingPerson: Person | null;
+  setEditingPerson: (person: Person | null) => void;
+
+  // Return edit modal state
+  editingReturnData: { transaction: Transaction; returnRecord: ReturnRecord } | null;
+  setEditingReturnData: (data: { transaction: Transaction; returnRecord: ReturnRecord } | null) => void;
+
+  // Confirmation dialog state
+  confirmDialog: {
+    isOpen: boolean;
+    title: string;
+    message: string;
+    warningNote?: string;
+    confirmText?: string;
+    danger?: boolean;
+    onConfirm: () => void;
+  } | null;
+  setConfirmDialog: (dialog: any) => void;
+  closeConfirmDialog: () => void;
+
+  // Toast notifications
+  toast: ToastNotification | null;
+  showToast: (message: string, undoAction?: () => void, undoLabel?: string) => void;
+  hideToast: () => void;
+
   // Actions
   openGiveMoney: (personId?: string) => void;
   openRecordReturn: (transactionId?: string, personId?: string) => void;
   openAddPerson: () => void;
-  addPerson: (name: string, mobileNumber: string) => Person;
+  addPerson: (name: string, mobileNumber: string) => { person: Person; isDuplicateMobile: boolean };
+  editPerson: (personId: string, updates: { name: string; mobileNumber: string }) => { success: boolean; isDuplicateMobile: boolean };
+  archivePerson: (personId: string) => void;
+  restorePerson: (personId: string) => void;
+  deletePerson: (personId: string) => { success: boolean; error?: string };
+
   giveMoney: (data: {
     personId: string;
     amountGiven: number;
@@ -36,6 +69,7 @@ interface AccountsContextType {
     expectedReturnDate: string;
     remark: string;
   }) => Transaction;
+
   recordReturn: (data: {
     transactionId: string;
     returnedAmount: number;
@@ -43,6 +77,7 @@ interface AccountsContextType {
     returnTime: string;
     remark?: string;
   }) => { success: boolean; error?: string };
+
   editTransaction: (
     transactionId: string,
     updates: {
@@ -54,11 +89,26 @@ interface AccountsContextType {
     },
     reason?: string
   ) => void;
+
   deleteTransaction: (transactionId: string) => void;
-  deletePerson: (personId: string) => { success: boolean; error?: string };
+
+  editReturn: (
+    transactionId: string,
+    returnId: string,
+    updates: {
+      returnedAmount: number;
+      returnDate: string;
+      returnTime: string;
+      remark?: string;
+    }
+  ) => { success: boolean; error?: string };
+
+  deleteReturn: (transactionId: string, returnId: string) => { success: boolean; error?: string };
+
   updateSettings: (newSettings: Partial<AppSettings>) => void;
   exportBackup: () => void;
   importBackup: (jsonContent: string) => { success: boolean; error?: string };
+  lastBackupExportedAt: string | null;
   resetToSampleData: () => void;
   clearAllData: () => void;
   getPersonById: (id: string) => Person | undefined;
@@ -69,6 +119,7 @@ interface AccountsContextType {
 const STORAGE_KEY_PEOPLE = 'armaan_accounts_people_v1';
 const STORAGE_KEY_TRANSACTIONS = 'armaan_accounts_transactions_v1';
 const STORAGE_KEY_SETTINGS = 'armaan_accounts_settings_v1';
+const STORAGE_KEY_LAST_BACKUP = 'armaan_accounts_last_backup_v1';
 
 const AccountsContext = createContext<AccountsContextType | undefined>(undefined);
 
@@ -104,6 +155,10 @@ export const AccountsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return INITIAL_SETTINGS;
   });
 
+  const [lastBackupExportedAt, setLastBackupExportedAt] = useState<string | null>(() => {
+    return localStorage.getItem(STORAGE_KEY_LAST_BACKUP);
+  });
+
   // Navigation and selection state
   const [activeTab, setActiveTab] = useState<string>('home');
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
@@ -115,6 +170,51 @@ export const AccountsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [addPersonModalOpen, setAddPersonModalOpen] = useState(false);
   const [modalPreselectedPersonId, setModalPreselectedPersonId] = useState<string | undefined>(undefined);
   const [modalPreselectedTransactionId, setModalPreselectedTransactionId] = useState<string | undefined>(undefined);
+
+  // Person and Return editing states
+  const [editingPerson, setEditingPerson] = useState<Person | null>(null);
+  const [editingReturnData, setEditingReturnData] = useState<{ transaction: Transaction; returnRecord: ReturnRecord } | null>(null);
+
+  // Confirmation dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    warningNote?: string;
+    confirmText?: string;
+    danger?: boolean;
+    onConfirm: () => void;
+  } | null>(null);
+
+  const closeConfirmDialog = useCallback(() => {
+    setConfirmDialog(null);
+  }, []);
+
+  // Toast notifications
+  const [toast, setToast] = useState<ToastNotification | null>(null);
+
+  const showToast = useCallback((message: string, undoAction?: () => void, undoLabel?: string) => {
+    const newToast: ToastNotification = {
+      id: String(Date.now()),
+      message,
+      undoAction,
+      undoLabel: undoLabel || 'Undo'
+    };
+    setToast(newToast);
+  }, []);
+
+  const hideToast = useCallback(() => {
+    setToast(null);
+  }, []);
+
+  // Auto-hide toast after 4.5s
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => {
+      setToast(null);
+    }, 4500);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   // Live timer tick for real-time cost counter (every 1 second)
   const [now, setNow] = useState<Date>(new Date());
@@ -166,17 +266,106 @@ export const AccountsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setAddPersonModalOpen(true);
   }, []);
 
-  // Add person
-  const addPerson = useCallback((name: string, mobileNumber: string): Person => {
+  // Add person with duplicate mobile check
+  const addPerson = useCallback((name: string, mobileNumber: string): { person: Person; isDuplicateMobile: boolean } => {
+    const cleanMobile = mobileNumber.trim();
+    const isDuplicate = people.some((p) => p.mobileNumber.trim() === cleanMobile);
+
     const newPerson: Person = {
       id: `p-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       name: name.trim(),
-      mobileNumber: mobileNumber.trim(),
+      mobileNumber: cleanMobile,
+      isArchived: false,
       createdAt: new Date().toISOString()
     };
+
     setPeople((prev) => [newPerson, ...prev]);
-    return newPerson;
-  }, []);
+    showToast(`Person "${newPerson.name}" added successfully`);
+    return { person: newPerson, isDuplicateMobile: isDuplicate };
+  }, [people, showToast]);
+
+  // Edit existing person
+  const editPerson = useCallback((personId: string, updates: { name: string; mobileNumber: string }): { success: boolean; isDuplicateMobile: boolean } => {
+    const cleanMobile = updates.mobileNumber.trim();
+    const isDuplicate = people.some((p) => p.id !== personId && p.mobileNumber.trim() === cleanMobile);
+
+    setPeople((prev) =>
+      prev.map((p) => {
+        if (p.id === personId) {
+          return {
+            ...p,
+            name: updates.name.trim(),
+            mobileNumber: cleanMobile
+          };
+        }
+        return p;
+      })
+    );
+
+    showToast('Person updated successfully');
+    return { success: true, isDuplicateMobile: isDuplicate };
+  }, [people, showToast]);
+
+  // Archive Person
+  const archivePerson = useCallback((personId: string) => {
+    const target = people.find((p) => p.id === personId);
+    setPeople((prev) =>
+      prev.map((p) => (p.id === personId ? { ...p, isArchived: true } : p))
+    );
+    if (selectedPersonId === personId) {
+      setSelectedPersonId(null);
+    }
+    showToast(
+      `Person "${target?.name || 'Account'}" archived`,
+      () => {
+        setPeople((prev) =>
+          prev.map((p) => (p.id === personId ? { ...p, isArchived: false } : p))
+        );
+      },
+      'Undo'
+    );
+  }, [people, selectedPersonId, showToast]);
+
+  // Restore Person
+  const restorePerson = useCallback((personId: string) => {
+    const target = people.find((p) => p.id === personId);
+    setPeople((prev) =>
+      prev.map((p) => (p.id === personId ? { ...p, isArchived: false } : p))
+    );
+    showToast(`Person "${target?.name || 'Account'}" restored`);
+  }, [people, showToast]);
+
+  // Delete person permanently (only if 0 transactions)
+  const deletePerson = useCallback(
+    (personId: string): { success: boolean; error?: string } => {
+      const hasTransactions = transactions.some((t) => t.personId === personId);
+      if (hasTransactions) {
+        return {
+          success: false,
+          error: 'This person has transaction history. Use "Archive Person" instead to preserve financial records.'
+        };
+      }
+
+      const deletedPerson = people.find((p) => p.id === personId);
+      setPeople((prev) => prev.filter((p) => p.id !== personId));
+      if (selectedPersonId === personId) {
+        setSelectedPersonId(null);
+      }
+
+      if (deletedPerson) {
+        showToast(
+          `Person "${deletedPerson.name}" deleted`,
+          () => {
+            setPeople((prev) => [deletedPerson, ...prev]);
+          },
+          'Undo'
+        );
+      }
+
+      return { success: true };
+    },
+    [transactions, people, selectedPersonId, showToast]
+  );
 
   // Generate next transaction number: AA000001
   const getNextTransactionNumber = useCallback((existingTx: Transaction[]): string => {
@@ -220,9 +409,10 @@ export const AccountsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       };
 
       setTransactions((prev) => [newTx, ...prev]);
+      showToast(`Money Given recorded (${newTx.transactionNumber})`);
       return newTx;
     },
-    [transactions, getNextTransactionNumber]
+    [transactions, getNextTransactionNumber, showToast]
   );
 
   // Record return
@@ -307,9 +497,10 @@ export const AccountsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         })
       );
 
+      showToast(isNowClosed ? `Return recorded. Transaction ${targetTx.transactionNumber} Closed!` : 'Return Recorded');
       return { success: true };
     },
-    [transactions, settings.annualRate]
+    [transactions, settings.annualRate, showToast]
   );
 
   // Edit transaction with audit log
@@ -413,35 +604,204 @@ export const AccountsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           return updatedTx;
         })
       );
+
+      showToast('Transaction Updated');
     },
-    [settings.annualRate]
+    [settings.annualRate, showToast]
   );
 
-  // Delete transaction
-  const deleteTransaction = useCallback((transactionId: string) => {
-    setTransactions((prev) => prev.filter((t) => t.id !== transactionId));
-    if (selectedTransactionId === transactionId) {
-      setSelectedTransactionId(null);
-    }
-  }, [selectedTransactionId]);
+  // Delete transaction with undo support
+  const deleteTransaction = useCallback(
+    (transactionId: string) => {
+      const deletedTx = transactions.find((t) => t.id === transactionId);
+      setTransactions((prev) => prev.filter((t) => t.id !== transactionId));
+      if (selectedTransactionId === transactionId) {
+        setSelectedTransactionId(null);
+      }
 
-  // Delete person
-  const deletePerson = useCallback(
-    (personId: string): { success: boolean; error?: string } => {
-      const hasTransactions = transactions.some((t) => t.personId === personId);
-      if (hasTransactions) {
+      if (deletedTx) {
+        showToast(
+          `Transaction ${deletedTx.transactionNumber} deleted`,
+          () => {
+            setTransactions((prev) => [deletedTx, ...prev]);
+          },
+          'Undo'
+        );
+      }
+    },
+    [transactions, selectedTransactionId, showToast]
+  );
+
+  // Edit repayment entry
+  const editReturn = useCallback(
+    (
+      transactionId: string,
+      returnId: string,
+      updates: {
+        returnedAmount: number;
+        returnDate: string;
+        returnTime: string;
+        remark?: string;
+      }
+    ): { success: boolean; error?: string } => {
+      const targetTx = transactions.find((t) => t.id === transactionId);
+      if (!targetTx) {
+        return { success: false, error: 'Transaction not found.' };
+      }
+
+      const otherReturnsSum = targetTx.returns
+        .filter((r) => r.id !== returnId)
+        .reduce((sum, r) => sum + r.returnedAmount, 0);
+
+      const maxAllowed = targetTx.amountGiven - otherReturnsSum;
+      if (updates.returnedAmount > maxAllowed + 0.001) {
         return {
           success: false,
-          error: 'Cannot delete person with existing transactions. Delete their transactions first or keep them in history.'
+          error: `Returned amount cannot exceed maximum allowable ₹${maxAllowed.toLocaleString('en-IN')}.`
         };
       }
-      setPeople((prev) => prev.filter((p) => p.id !== personId));
-      if (selectedPersonId === personId) {
-        setSelectedPersonId(null);
+
+      // Check date/time against given date/time
+      const givenTime = parseDateTime(targetTx.dateGiven, targetTx.timeGiven);
+      const retTime = parseDateTime(updates.returnDate, updates.returnTime || '00:00');
+      if (retTime.getTime() < givenTime.getTime()) {
+        return {
+          success: false,
+          error: 'Return date and time cannot be earlier than when money was given.'
+        };
       }
+
+      const updatedReturns = targetTx.returns.map((r) => {
+        if (r.id === returnId) {
+          return {
+            ...r,
+            returnedAmount: updates.returnedAmount,
+            returnDate: updates.returnDate,
+            returnTime: updates.returnTime || '12:00',
+            remark: updates.remark?.trim()
+          };
+        }
+        return r;
+      });
+
+      const newTotalReturned = updatedReturns.reduce((sum, r) => sum + r.returnedAmount, 0);
+      const newOutstanding = Math.max(0, targetTx.amountGiven - newTotalReturned);
+      const isNowClosed = newOutstanding <= 0.001;
+
+      let closedAt = targetTx.closedAt;
+      let finalFinancingCost = targetTx.finalFinancingCost;
+
+      if (isNowClosed) {
+        // Find latest return date/time
+        const latestReturn = [...updatedReturns].sort((a, b) => {
+          return parseDateTime(b.returnDate, b.returnTime).getTime() - parseDateTime(a.returnDate, a.returnTime).getTime();
+        })[0];
+        closedAt = parseDateTime(latestReturn.returnDate, latestReturn.returnTime).toISOString();
+        const costResult = calculateTransactionCost({ ...targetTx, returns: updatedReturns }, new Date(closedAt), settings.annualRate);
+        finalFinancingCost = parseFloat(costResult.totalCost.toFixed(2));
+      } else {
+        // If it was closed before and now reopened
+        closedAt = undefined;
+        finalFinancingCost = undefined;
+      }
+
+      setTransactions((prev) =>
+        prev.map((t) => {
+          if (t.id === transactionId) {
+            return {
+              ...t,
+              returns: updatedReturns,
+              status: isNowClosed ? 'Closed' : newTotalReturned > 0 ? 'Partially Repaid' : 'Open',
+              closedAt,
+              finalFinancingCost
+            };
+          }
+          return t;
+        })
+      );
+
+      showToast('Repayment Updated');
       return { success: true };
     },
-    [transactions, selectedPersonId]
+    [transactions, settings.annualRate, showToast]
+  );
+
+  // Delete repayment entry (automatically reopens closed transactions if balance becomes > 0)
+  const deleteReturn = useCallback(
+    (transactionId: string, returnId: string): { success: boolean; error?: string } => {
+      const targetTx = transactions.find((t) => t.id === transactionId);
+      if (!targetTx) {
+        return { success: false, error: 'Transaction not found.' };
+      }
+
+      const removedReturn = targetTx.returns.find((r) => r.id === returnId);
+      if (!removedReturn) {
+        return { success: false, error: 'Repayment record not found.' };
+      }
+
+      const updatedReturns = targetTx.returns.filter((r) => r.id !== returnId);
+      const newTotalReturned = updatedReturns.reduce((sum, r) => sum + r.returnedAmount, 0);
+      const newOutstanding = Math.max(0, targetTx.amountGiven - newTotalReturned);
+      const isNowClosed = newOutstanding <= 0.001;
+
+      let closedAt: string | undefined = undefined;
+      let finalFinancingCost: number | undefined = undefined;
+
+      if (isNowClosed) {
+        const latestReturn = [...updatedReturns].sort((a, b) => {
+          return parseDateTime(b.returnDate, b.returnTime).getTime() - parseDateTime(a.returnDate, a.returnTime).getTime();
+        })[0];
+        if (latestReturn) {
+          closedAt = parseDateTime(latestReturn.returnDate, latestReturn.returnTime).toISOString();
+          const costResult = calculateTransactionCost({ ...targetTx, returns: updatedReturns }, new Date(closedAt), settings.annualRate);
+          finalFinancingCost = parseFloat(costResult.totalCost.toFixed(2));
+        }
+      }
+
+      setTransactions((prev) =>
+        prev.map((t) => {
+          if (t.id === transactionId) {
+            return {
+              ...t,
+              returns: updatedReturns,
+              status: isNowClosed ? 'Closed' : newTotalReturned > 0 ? 'Partially Repaid' : 'Open',
+              closedAt,
+              finalFinancingCost
+            };
+          }
+          return t;
+        })
+      );
+
+      showToast(
+        'Repayment Deleted',
+        () => {
+          // Undo handler: restore return
+          setTransactions((prev) =>
+            prev.map((t) => {
+              if (t.id === transactionId) {
+                const restoredReturns = [...t.returns, removedReturn];
+                const restoredTotal = restoredReturns.reduce((sum, r) => sum + r.returnedAmount, 0);
+                const restoredOutstanding = Math.max(0, t.amountGiven - restoredTotal);
+                const restoredClosed = restoredOutstanding <= 0.001;
+                return {
+                  ...t,
+                  returns: restoredReturns,
+                  status: restoredClosed ? 'Closed' : restoredTotal > 0 ? 'Partially Repaid' : 'Open',
+                  closedAt: restoredClosed ? targetTx.closedAt : undefined,
+                  finalFinancingCost: restoredClosed ? targetTx.finalFinancingCost : undefined
+                };
+              }
+              return t;
+            })
+          );
+        },
+        'Undo'
+      );
+
+      return { success: true };
+    },
+    [transactions, settings.annualRate, showToast]
   );
 
   // Update Settings
@@ -451,9 +811,10 @@ export const AccountsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Export Backup
   const exportBackup = useCallback(() => {
+    const exportedAt = new Date().toISOString();
     const backupData = {
-      version: '1.0',
-      exportedAt: new Date().toISOString(),
+      version: '1.1',
+      exportedAt,
       appName: 'Armaan Accounts',
       people,
       transactions,
@@ -464,11 +825,15 @@ export const AccountsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    const dateStr = new Date().toISOString().split('T')[0];
+    const dateStr = exportedAt.split('T')[0];
     link.download = `armaan-accounts-backup-${dateStr}.json`;
     link.click();
     URL.revokeObjectURL(url);
-  }, [people, transactions, settings]);
+
+    setLastBackupExportedAt(exportedAt);
+    localStorage.setItem(STORAGE_KEY_LAST_BACKUP, exportedAt);
+    showToast('Backup Exported Successfully');
+  }, [people, transactions, settings, showToast]);
 
   // Import Backup
   const importBackup = useCallback(
@@ -484,12 +849,13 @@ export const AccountsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         if (parsed.settings) {
           setSettings(parsed.settings);
         }
+        showToast('Backup Restored Successfully');
         return { success: true };
       } catch (err: any) {
         return { success: false, error: err.message || 'Failed to parse JSON backup file.' };
       }
     },
-    []
+    [showToast]
   );
 
   // Reset to sample data
@@ -497,13 +863,15 @@ export const AccountsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setPeople(INITIAL_PEOPLE);
     setTransactions(INITIAL_TRANSACTIONS);
     setSettings(INITIAL_SETTINGS);
-  }, []);
+    showToast('Demo data loaded');
+  }, [showToast]);
 
   // Clear all data
   const clearAllData = useCallback(() => {
     setPeople([]);
     setTransactions([]);
-  }, []);
+    showToast('All records cleared');
+  }, [showToast]);
 
   const getPersonById = useCallback((id: string) => people.find((p) => p.id === id), [people]);
   const getTransactionById = useCallback((id: string) => transactions.find((t) => t.id === id), [transactions]);
@@ -586,18 +954,34 @@ export const AccountsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setAddPersonModalOpen,
         modalPreselectedPersonId,
         modalPreselectedTransactionId,
+        editingPerson,
+        setEditingPerson,
+        editingReturnData,
+        setEditingReturnData,
+        confirmDialog,
+        setConfirmDialog,
+        closeConfirmDialog,
+        toast,
+        showToast,
+        hideToast,
         openGiveMoney,
         openRecordReturn,
         openAddPerson,
         addPerson,
+        editPerson,
+        archivePerson,
+        restorePerson,
+        deletePerson,
         giveMoney,
         recordReturn,
         editTransaction,
         deleteTransaction,
-        deletePerson,
+        editReturn,
+        deleteReturn,
         updateSettings,
         exportBackup,
         importBackup,
+        lastBackupExportedAt,
         resetToSampleData,
         clearAllData,
         getPersonById,

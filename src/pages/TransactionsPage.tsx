@@ -38,13 +38,14 @@ export const TransactionsPage: React.FC = () => {
           return false;
         }
 
-        // Search query (Transaction number, person name, remark)
+        // Search query (Transaction number, person name, mobile number, remark)
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase().trim();
           const matchTxNum = tx.transactionNumber.toLowerCase().includes(q);
           const matchPerson = person?.name.toLowerCase().includes(q) || false;
+          const matchMobile = person?.mobileNumber.toLowerCase().includes(q) || false;
           const matchRemark = tx.remark?.toLowerCase().includes(q) || false;
-          if (!matchTxNum && !matchPerson && !matchRemark) {
+          if (!matchTxNum && !matchPerson && !matchMobile && !matchRemark) {
             return false;
           }
         }
@@ -65,7 +66,7 @@ export const TransactionsPage: React.FC = () => {
         <input
           type="text"
           className="search-input"
-          placeholder="Search by transaction no, person or remark..."
+          placeholder="Search by person, mobile, tx #, or remark..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />

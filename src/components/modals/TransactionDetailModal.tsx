@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAccounts } from '../../context/AccountsContext';
-import { X, Edit3, ArrowDownLeft, AlertCircle, History, Info } from 'lucide-react';
+import { X, Edit3, ArrowDownLeft, AlertCircle, History, Info, Trash2, Edit2 } from 'lucide-react';
 import { formatINR, formatCost, formatDate, formatTime, formatDuration } from '../../utils/formatters';
 import { calculateTransactionCost, parseDateTime, getDaysOverdue } from '../../utils/calculator';
 import { EditTransactionModal } from './EditTransactionModal';
@@ -13,7 +13,11 @@ export const TransactionDetailModal: React.FC = () => {
     people,
     settings,
     now,
-    openRecordReturn
+    openRecordReturn,
+    deleteTransaction,
+    deleteReturn,
+    setEditingReturnData,
+    setConfirmDialog
   } = useAccounts();
 
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -58,6 +62,41 @@ export const TransactionDetailModal: React.FC = () => {
               >
                 <Edit3 size={14} />
                 <span>Edit</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const hasReturns = transaction.returns.length > 0;
+                  setConfirmDialog({
+                    isOpen: true,
+                    title: 'Delete Transaction',
+                    message: `Are you sure you want to delete transaction ${transaction.transactionNumber}?`,
+                    warningNote: hasReturns
+                      ? `This transaction has ${transaction.returns.length} recorded repayment(s). Deleting will permanently remove this transaction and all associated repayments, and recalculate all person and dashboard totals.`
+                      : 'This will remove the transaction and immediately recalculate all person and dashboard totals.',
+                    confirmText: 'Delete Transaction',
+                    danger: true,
+                    onConfirm: () => {
+                      deleteTransaction(transaction.id);
+                    }
+                  });
+                }}
+                style={{
+                  padding: '6px 10px',
+                  fontSize: 12,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  background: '#fef2f2',
+                  color: '#dc2626',
+                  border: '1px solid #fecaca',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontWeight: 600
+                }}
+              >
+                <Trash2 size={14} />
+                <span>Delete</span>
               </button>
               <button
                 type="button"
@@ -239,21 +278,83 @@ export const TransactionDetailModal: React.FC = () => {
                         padding: '8px 10px',
                         display: 'flex',
                         justifyContent: 'space-between',
-                        alignItems: 'center'
+                        alignItems: 'center',
+                        gap: 8
                       }}
                     >
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: 13, color: '#047857' }}>
-                          +{formatINR(ret.returnedAmount)}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontWeight: 700, fontSize: 13, color: '#047857' }}>
+                            +{formatINR(ret.returnedAmount)}
+                          </span>
+                          <span style={{ fontSize: 10, background: '#ecfdf5', color: '#047857', padding: '1px 5px', borderRadius: 4, fontWeight: 700 }}>
+                            #{idx + 1}
+                          </span>
                         </div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {formatDate(ret.returnDate)} at {formatTime(ret.returnTime)}
                           {ret.remark && ` • ${ret.remark}`}
                         </div>
                       </div>
-                      <span style={{ fontSize: 11, background: '#ecfdf5', color: '#047857', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>
-                        Return #{idx + 1}
-                      </span>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                        <button
+                          type="button"
+                          onClick={() => setEditingReturnData({ transaction, returnRecord: ret })}
+                          style={{
+                            background: '#f1f5f9',
+                            border: '1px solid #cbd5e1',
+                            borderRadius: 6,
+                            padding: '4px 8px',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 3,
+                            color: '#334155'
+                          }}
+                          title="Edit Repayment"
+                        >
+                          <Edit2 size={12} />
+                          <span>Edit</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setConfirmDialog({
+                              isOpen: true,
+                              title: 'Delete Repayment',
+                              message: `Delete repayment of ${formatINR(ret.returnedAmount)} on ${formatDate(ret.returnDate)}?`,
+                              warningNote: costBreakdown.isClosed
+                                ? 'Deleting this repayment will cause the transaction to have an outstanding balance again. The transaction will automatically reopen and resume financing cost from the correct historical timeline.'
+                                : 'Outstanding balance, financing costs, person totals, and dashboard totals will recalculate automatically.',
+                              confirmText: 'Delete Repayment',
+                              danger: true,
+                              onConfirm: () => {
+                                deleteReturn(transaction.id, ret.id);
+                              }
+                            });
+                          }}
+                          style={{
+                            background: '#fef2f2',
+                            border: '1px solid #fecaca',
+                            borderRadius: 6,
+                            padding: '4px 8px',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 3,
+                            color: '#dc2626'
+                          }}
+                          title="Delete Repayment"
+                        >
+                          <Trash2 size={12} />
+                          <span>Delete</span>
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>

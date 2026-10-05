@@ -22,6 +22,7 @@ export const RecordReturnModal: React.FC = () => {
   const [returnTime, setReturnTime] = useState<string>(getCurrentTimeString());
   const [remark, setRemark] = useState<string>('');
   const [error, setError] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Eligible transactions for the chosen person
   const personTransactions = useMemo(() => {
@@ -47,6 +48,7 @@ export const RecordReturnModal: React.FC = () => {
   useEffect(() => {
     if (recordReturnModalOpen) {
       setError('');
+      setIsSubmitting(false);
       setReturnDate(getTodayDateString());
       setReturnTime(getCurrentTimeString());
       setReturnedAmount('');
@@ -124,6 +126,7 @@ export const RecordReturnModal: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setError('');
 
     if (!personId) {
@@ -153,20 +156,24 @@ export const RecordReturnModal: React.FC = () => {
       return;
     }
 
-    const result = recordReturn({
-      transactionId,
-      returnedAmount: numEntered,
-      returnDate,
-      returnTime: returnTime || '12:00',
-      remark: remark || undefined
-    });
+    setIsSubmitting(true);
+    setTimeout(() => {
+      const result = recordReturn({
+        transactionId,
+        returnedAmount: numEntered,
+        returnDate,
+        returnTime: returnTime || '12:00',
+        remark: remark || undefined
+      });
 
-    if (!result.success) {
-      setError(result.error || 'Failed to record return.');
-      return;
-    }
+      setIsSubmitting(false);
+      if (!result.success) {
+        setError(result.error || 'Failed to record return.');
+        return;
+      }
 
-    setRecordReturnModalOpen(false);
+      setRecordReturnModalOpen(false);
+    }, 250);
   };
 
   return (
@@ -221,75 +228,69 @@ export const RecordReturnModal: React.FC = () => {
             </select>
           </div>
 
-          {/* Select Transaction */}
+          {/* Prominent Visual Transaction Selector Cards */}
           <div className="form-group">
-            <label className="form-label">Select Transaction *</label>
+            <label className="form-label">Select Transaction for Repayment *</label>
             {personTransactions.length === 0 ? (
               <div style={{ padding: 10, background: '#fef3c7', borderRadius: 8, fontSize: 13, color: '#92400e' }}>
                 This person currently has no open or partially repaid transactions.
               </div>
             ) : (
-              <select
-                className="form-select"
-                value={transactionId}
-                onChange={(e) => setTransactionId(e.target.value)}
-                required
-              >
-                <option value="" disabled>-- Select Which Transaction --</option>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 220, overflowY: 'auto' }}>
                 {personTransactions.map((tx) => {
                   const retSum = tx.returns.reduce((sum, r) => sum + r.returnedAmount, 0);
                   const bal = tx.amountGiven - retSum;
+                  const isSelected = tx.id === transactionId;
+
                   return (
-                    <option key={tx.id} value={tx.id}>
-                      {tx.transactionNumber}: {formatINR(tx.amountGiven)} Given ({formatDate(tx.dateGiven)}) • Balance: {formatINR(bal)} • {tx.remark}
-                    </option>
+                    <div
+                      key={tx.id}
+                      onClick={() => setTransactionId(tx.id)}
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: 10,
+                        border: isSelected ? '2px solid var(--primary-accent)' : '1px solid var(--border-medium)',
+                        background: isSelected ? '#eff6ff' : '#ffffff',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--text-main)' }}>
+                          {tx.transactionNumber}
+                        </span>
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                          Given: {formatDate(tx.dateGiven)}
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                        <div>
+                          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Original: </span>
+                          <span style={{ fontSize: 12, fontWeight: 600 }}>{formatINR(tx.amountGiven)}</span>
+                          {tx.remark && (
+                            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6, fontStyle: 'italic' }}>
+                              • "{tx.remark}"
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Visually Prominent Outstanding Amount */}
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: '#b91c1c' }}>
+                            Outstanding
+                          </div>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: '#b91c1c' }}>
+                            {formatINR(bal)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   );
                 })}
-              </select>
+              </div>
             )}
           </div>
-
-          {/* Transaction Current State Summary */}
-          {selectedTx && (
-            <div
-              style={{
-                background: '#f8fafc',
-                border: '1px solid #e2e8f0',
-                borderRadius: 10,
-                padding: '10px 12px',
-                marginBottom: 14,
-                fontSize: 12
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span style={{ color: 'var(--text-muted)' }}>Original Amount:</span>
-                <span style={{ fontWeight: 700 }}>{formatINR(selectedTx.amountGiven)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span style={{ color: 'var(--text-muted)' }}>Date & Time Given:</span>
-                <span>{formatDate(selectedTx.dateGiven)} at {formatTime(selectedTx.timeGiven)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span style={{ color: 'var(--text-muted)' }}>Total Already Returned:</span>
-                <span style={{ color: '#047857', fontWeight: 600 }}>
-                  {formatINR(selectedTx.returns.reduce((sum, r) => sum + r.returnedAmount, 0))}
-                </span>
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  paddingTop: 6,
-                  borderTop: '1px solid #e2e8f0',
-                  fontWeight: 800,
-                  fontSize: 13
-                }}
-              >
-                <span>Current Outstanding:</span>
-                <span style={{ color: '#b91c1c' }}>{formatINR(currentOutstanding)}</span>
-              </div>
-            </div>
-          )}
 
           {/* Returned Amount Entry (Manual) */}
           <div className="form-group">
@@ -309,6 +310,7 @@ export const RecordReturnModal: React.FC = () => {
               <span className="currency-prefix">₹</span>
               <input
                 type="number"
+                inputMode="decimal"
                 step="any"
                 min="1"
                 max={currentOutstanding || undefined}
@@ -388,9 +390,9 @@ export const RecordReturnModal: React.FC = () => {
             <button
               type="submit"
               className="btn btn-return"
-              disabled={!selectedTx || currentOutstanding <= 0}
+              disabled={!selectedTx || currentOutstanding <= 0 || isSubmitting}
             >
-              Record Return
+              {isSubmitting ? 'Recording Return...' : 'Record Return'}
             </button>
           </div>
         </form>

@@ -20,9 +20,11 @@ export const MorePage: React.FC = () => {
     now,
     exportBackup,
     importBackup,
+    lastBackupExportedAt,
     resetToSampleData,
     clearAllData,
-    setSelectedPersonId
+    setSelectedPersonId,
+    setConfirmDialog
   } = useAccounts();
 
   const [subTab, setSubTab] = useState<'reports' | 'backup' | 'settings'>('reports');
@@ -193,23 +195,25 @@ export const MorePage: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const confirmed = window.confirm(
-      'WARNING: Importing this backup will REPLACE your current data with the contents of the backup file.\n\nDo you want to proceed?'
-    );
-    if (!confirmed) {
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
-    }
-
     const reader = new FileReader();
     reader.onload = (event) => {
       const text = event.target?.result as string;
-      const res = importBackup(text);
-      if (res.success) {
-        setImportStatus({ success: true, message: 'Backup restored successfully!' });
-      } else {
-        setImportStatus({ success: false, message: res.error || 'Failed to import backup file.' });
-      }
+      setConfirmDialog({
+        isOpen: true,
+        title: 'Restore Backup',
+        message: 'Are you sure you want to restore this backup file?',
+        warningNote: 'Restoring will replace all people, transactions, and settings stored in this browser with data from the backup file.',
+        confirmText: 'Restore Backup',
+        danger: true,
+        onConfirm: () => {
+          const res = importBackup(text);
+          if (res.success) {
+            setImportStatus({ success: true, message: 'Backup restored successfully!' });
+          } else {
+            setImportStatus({ success: false, message: res.error || 'Failed to import backup file.' });
+          }
+        }
+      });
       if (fileInputRef.current) fileInputRef.current.value = '';
     };
     reader.readAsText(file);
@@ -415,9 +419,36 @@ export const MorePage: React.FC = () => {
               <Download size={18} style={{ color: 'var(--primary-accent)' }} />
               <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-main)' }}>Export Complete Backup</h3>
             </div>
-            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.4 }}>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.4 }}>
               Download all your Armaan Accounts data (people, transactions, repayment sections, and edit history) into a secure JSON backup file. Keep this copy saved safely.
             </p>
+
+            {lastBackupExportedAt ? (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: '#047857',
+                  marginBottom: 14,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: '#ecfdf5',
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  border: '1px solid #a7f3d0'
+                }}
+              >
+                <CheckCircle size={15} style={{ flexShrink: 0 }} />
+                <span>
+                  Last backup exported: <b>{new Date(lastBackupExportedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</b>
+                </span>
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
+                Last backup exported: <b>Never on this device</b>
+              </div>
+            )}
+
             <button
               type="button"
               className="btn btn-primary"
@@ -508,9 +539,17 @@ export const MorePage: React.FC = () => {
                 type="button"
                 className="btn-sm btn-secondary"
                 onClick={() => {
-                  if (window.confirm('Reset all accounts to default sample demonstration data?')) {
-                    resetToSampleData();
-                  }
+                  setConfirmDialog({
+                    isOpen: true,
+                    title: 'Reset to Sample Data',
+                    message: 'Reset all accounts and transactions to the sample demonstration data?',
+                    warningNote: 'Any custom records created will be replaced with default sample demo data.',
+                    confirmText: 'Reset to Sample',
+                    danger: true,
+                    onConfirm: () => {
+                      resetToSampleData();
+                    }
+                  });
                 }}
                 style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
               >
@@ -522,9 +561,17 @@ export const MorePage: React.FC = () => {
                 type="button"
                 className="btn-sm btn-danger"
                 onClick={() => {
-                  if (window.confirm('Are you sure you want to completely clear all data? This cannot be undone unless you have a backup.')) {
-                    clearAllData();
-                  }
+                  setConfirmDialog({
+                    isOpen: true,
+                    title: 'Clear All Data',
+                    message: 'Are you sure you want to permanently clear all data and start completely fresh?',
+                    warningNote: 'All people, transactions, and settings will be permanently wiped out.',
+                    confirmText: 'Clear All Data',
+                    danger: true,
+                    onConfirm: () => {
+                      clearAllData();
+                    }
+                  });
                 }}
                 style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
               >

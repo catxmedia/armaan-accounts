@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAccounts } from '../../context/AccountsContext';
 import { X, Plus, AlertCircle } from 'lucide-react';
 import { getTodayDateString, getCurrentTimeString, formatINR } from '../../utils/formatters';
@@ -19,6 +19,7 @@ export const GiveMoneyModal: React.FC = () => {
     setGiveMoneyModalOpen,
     modalPreselectedPersonId,
     people,
+    transactions,
     giveMoney,
     openAddPerson
   } = useAccounts();
@@ -30,10 +31,39 @@ export const GiveMoneyModal: React.FC = () => {
   const [expectedReturnDate, setExpectedReturnDate] = useState<string>('');
   const [remark, setRemark] = useState<string>('');
   const [error, setError] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Active (non-archived) people only for new money
+  const activePeople = useMemo(() => {
+    return people.filter((p) => !p.isArchived);
+  }, [people]);
+
+  // Compute recently used people from recent transactions
+  const recentPeople = useMemo(() => {
+    const recentIds = new Set<string>();
+    const list: typeof activePeople = [];
+
+    // Sort transactions newest first
+    const sortedTxs = [...transactions].sort((a, b) => {
+      return new Date(b.createdAt || `${b.dateGiven}T${b.timeGiven || '00:00'}`).getTime() -
+             new Date(a.createdAt || `${a.dateGiven}T${a.timeGiven || '00:00'}`).getTime();
+    });
+
+    for (const tx of sortedTxs) {
+      if (!recentIds.has(tx.personId)) {
+        recentIds.add(tx.personId);
+        const p = activePeople.find((ap) => ap.id === tx.personId);
+        if (p) list.push(p);
+      }
+      if (list.length >= 4) break;
+    }
+    return list;
+  }, [transactions, activePeople]);
 
   useEffect(() => {
     if (giveMoneyModalOpen) {
       setError('');
+      setIsSubmitting(false);
       setDateGiven(getTodayDateString());
       setTimeGiven(getCurrentTimeString());
       setAmountGiven('');
@@ -42,18 +72,21 @@ export const GiveMoneyModal: React.FC = () => {
 
       if (modalPreselectedPersonId) {
         setPersonId(modalPreselectedPersonId);
-      } else if (people.length > 0) {
-        setPersonId(people[0].id);
+      } else if (recentPeople.length > 0) {
+        setPersonId(recentPeople[0].id);
+      } else if (activePeople.length > 0) {
+        setPersonId(activePeople[0].id);
       } else {
         setPersonId('');
       }
     }
-  }, [giveMoneyModalOpen, modalPreselectedPersonId, people]);
+  }, [giveMoneyModalOpen, modalPreselectedPersonId, activePeople, recentPeople]);
 
   if (!giveMoneyModalOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setError('');
 
     if (!personId) {
@@ -72,16 +105,19 @@ export const GiveMoneyModal: React.FC = () => {
       return;
     }
 
-    giveMoney({
-      personId,
-      amountGiven: parsedAmount,
-      dateGiven,
-      timeGiven: timeGiven || '12:00',
-      expectedReturnDate: expectedReturnDate || '',
-      remark: remark || 'Help / Advance'
-    });
-
-    setGiveMoneyModalOpen(false);
+    setIsSubmitting(true);
+    setTimeout(() => {
+      giveMoney({
+        personId,
+        amountGiven: parsedAmount,
+        dateGiven,
+        timeGiven: timeGiven || '12:00',
+        expectedReturnDate: expectedReturnDate || '',
+        remark: remark || 'Help / Advance'
+      });
+      setIsSubmitting(false);
+      setGiveMoneyModalOpen(false);
+    }, 250);
   };
 
   const numAmount = parseFloat(amountGiven.replace(/,/g, ''));
@@ -112,6 +148,36 @@ export const GiveMoneyModal: React.FC = () => {
             </div>
           )}
 
+          {/* Recently Used People Chips */}
+          {recentPeople.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 6 }}>
+                Recent People
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {recentPeople.map((rp) => (
+                  <button
+                    key={rp.id}
+                    type="button"
+                    onClick={() => setPersonId(rp.id)}
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      padding: '5px 10px',
+                      borderRadius: 20,
+                      background: personId === rp.id ? 'var(--primary)' : 'var(--bg-card-subtle)',
+                      color: personId === rp.id ? '#ffffff' : 'var(--text-main)',
+                      border: '1px solid var(--border-medium)',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {rp.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Person Selection */}
           <div className="form-group">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
@@ -125,9 +191,9 @@ export const GiveMoneyModal: React.FC = () => {
               </button>
             </div>
 
-            {people.length === 0 ? (
+            {activePeople.length === 0 ? (
               <div style={{ padding: 10, background: '#fef3c7', borderRadius: 8, fontSize: 13, color: '#92400e' }}>
-                No people registered yet.{' '}
+                No active people found.{' '}
                 <button
                   type="button"
                   onClick={() => openAddPerson()}
@@ -144,7 +210,7 @@ export const GiveMoneyModal: React.FC = () => {
                 required
               >
                 <option value="" disabled>-- Select Person --</option>
-                {people.map((p) => (
+                {activePeople.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name} ({p.mobileNumber})
                   </option>
@@ -160,6 +226,7 @@ export const GiveMoneyModal: React.FC = () => {
               <span className="currency-prefix">₹</span>
               <input
                 type="number"
+                inputMode="decimal"
                 step="any"
                 min="1"
                 className="form-input amount-input"
@@ -238,8 +305,12 @@ export const GiveMoneyModal: React.FC = () => {
           </div>
 
           <div style={{ marginTop: 20 }}>
-            <button type="submit" className="btn btn-give">
-              Confirm & Give Money
+            <button
+              type="submit"
+              className="btn btn-give"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? 'Recording...' : 'Confirm & Give Money'}
             </button>
           </div>
         </form>
